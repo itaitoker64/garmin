@@ -1,5 +1,5 @@
 """
-POST /api/garmin/snapshot
+POST /api/garmin-data/snapshot
 Body: {"token": str}
 
 Resumes a Garmin session from a previously-dumped token string (no

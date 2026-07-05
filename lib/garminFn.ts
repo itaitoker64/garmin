@@ -30,12 +30,12 @@ async function callFn<T>(path: string, body: unknown): Promise<T> {
 }
 
 export function garminLogin(email: string, password: string) {
-  return callFn<{ token: string }>("/api/_garmin/login", { email, password });
+  return callFn<{ token: string }>("/api/garmin-data/login", { email, password });
 }
 
 export function garminSnapshot(token: string) {
   return callFn<{ token: string; data: import("./types").GarminSnapshot }>(
-    "/api/_garmin/snapshot",
+    "/api/garmin-data/snapshot",
     { token },
   );
 }

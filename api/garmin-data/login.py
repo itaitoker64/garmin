@@ -1,5 +1,5 @@
 """
-POST /api/garmin/login
+POST /api/garmin-data/login
 Body: {"email": str, "password": str}
 
 Authenticates against Garmin Connect and returns an in-memory session

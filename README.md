@@ -19,7 +19,7 @@ README.
   the dashboard.
 - **`lib/`** — auth config, encryption helpers, the rule-based coaching
   engine, and shared types.
-- **`api/_garmin/`** — Python Vercel Functions that do the actual Garmin
+- **`api/garmin-data/`** — Python Vercel Functions that do the actual Garmin
   Connect calls (via the [`garminconnect`](https://github.com/cyberjunky/python-garminconnect)
   library). Called only by the Next.js server, never by the browser
   directly — gated behind `INTERNAL_FN_SECRET`.
@@ -31,7 +31,10 @@ README.
 Garmin's auth requires TLS fingerprinting (`curl_cffi`) that only has a
 mature Python implementation. Vercel supports Python alongside a Next.js
 app in the same project as long as the Python files live in a top-level
-`api/` directory (outside `app/`) — that's what `api/_garmin/*.py` is.
+`api/` directory (outside `app/`) — that's what `api/garmin-data/*.py` is.
+(Files *starting* with an underscore in `api/` are excluded from routing,
+which is why the shared helper is `_garmin_lib.py` but the endpoints
+themselves can't live in an underscore-prefixed folder.)
 
 ### Session model
 

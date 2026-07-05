@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/_garmin/*.py": {
+    "api/garmin-data/*.py": {
       "maxDuration": 30
     }
   }
