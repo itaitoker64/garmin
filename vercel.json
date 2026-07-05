@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/_garmin/*.py": {
+      "maxDuration": 30
+    }
+  }
+}
