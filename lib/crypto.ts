@@ -1,12 +1,10 @@
 import crypto from "crypto";
+import { SESSION_ENC_KEY } from "./defaults";
 
 const ALGO = "aes-256-gcm";
 
 function getKey(): Buffer {
-  const secret = process.env.SESSION_ENC_KEY;
-  if (!secret) {
-    throw new Error("SESSION_ENC_KEY environment variable is not set");
-  }
+  const secret = SESSION_ENC_KEY;
   // Accept either a 32-byte base64 key or an arbitrary passphrase (hashed to 32 bytes).
   try {
     const decoded = Buffer.from(secret, "base64");
