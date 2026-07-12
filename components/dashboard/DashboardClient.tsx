@@ -1,24 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { GarminSnapshot } from "@/lib/types";
+import type { GarminSnapshot, LiveToday } from "@/lib/types";
 import { buildBriefing } from "@/lib/coach";
 import { CoachBriefingCard, StatTile } from "./Overview";
 import { HrvTrendChart, StressTrendChart, AcwrMeter } from "./Charts";
 import { ActivityList, PersonalRecordsCard, FitnessCard } from "./Lists";
+import { LiveTodayCard } from "./LiveToday";
 import { TopNav } from "@/components/TopNav";
+
+const LIVE_POLL_MS = 3 * 60 * 1000; // light endpoint — safe to poll
+const SNAPSHOT_REFRESH_MS = 30 * 60 * 1000; // heavy endpoint — refresh sparingly
+const FOCUS_STALE_MS = 2 * 60 * 1000;
 
 export function DashboardClient() {
   const router = useRouter();
   const [data, setData] = useState<GarminSnapshot | null>(null);
+  const [live, setLive] = useState<LiveToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const lastLiveFetch = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const loadLive = useCallback(async () => {
+    try {
+      const res = await fetch("/api/garmin/live", { cache: "no-store" });
+      if (res.status === 409 || res.status === 401) {
+        router.push("/connect");
+        return;
+      }
+      if (!res.ok) return; // live panel is best-effort; the snapshot is the backbone
+      const json = await res.json();
+      setLive(json.data);
+      lastLiveFetch.current = Date.now();
+    } catch {
+      // network hiccup — next poll retries
+    }
+  }, [router]);
+
+  const loadSnapshot = useCallback(
+    async (initial = false) => {
+      if (initial) setLoading(true);
+      else setSyncing(true);
       setError(null);
       try {
         const res = await fetch("/api/garmin/snapshot", { cache: "no-store" });
@@ -28,21 +53,46 @@ export function DashboardClient() {
         }
         const json = await res.json();
         if (!res.ok) {
-          if (!cancelled) setError(json.message || "Couldn't load your Garmin data.");
+          // Keep showing stale data on background-refresh failures.
+          if (initial) setError(json.message || "Couldn't load your Garmin data.");
           return;
         }
-        if (!cancelled) setData(json.data);
+        setData(json.data);
+        setLastSynced(new Date());
       } catch {
-        if (!cancelled) setError("Network error — try again.");
+        if (initial) setError("Network error — try again.");
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
+        setSyncing(false);
       }
+    },
+    [router],
+  );
+
+  const refresh = useCallback(() => {
+    loadSnapshot(false);
+    loadLive();
+  }, [loadSnapshot, loadLive]);
+
+  useEffect(() => {
+    loadSnapshot(true);
+    loadLive();
+
+    const liveTimer = setInterval(loadLive, LIVE_POLL_MS);
+    const snapTimer = setInterval(() => loadSnapshot(false), SNAPSHOT_REFRESH_MS);
+
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastLiveFetch.current > FOCUS_STALE_MS) loadLive();
     }
-    load();
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
-      cancelled = true;
+      clearInterval(liveTimer);
+      clearInterval(snapTimer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [router]);
+  }, [loadSnapshot, loadLive]);
 
   if (loading) {
     return (
@@ -52,12 +102,12 @@ export function DashboardClient() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="text-sm text-status-critical">{error}</p>
         <button
-          onClick={() => router.refresh()}
+          onClick={() => loadSnapshot(true)}
           className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-ink-secondary hover:text-ink-primary"
         >
           Try again
@@ -77,8 +127,10 @@ export function DashboardClient() {
 
   return (
     <div className="min-h-screen">
-      <TopNav />
+      <TopNav lastSynced={lastSynced} syncing={syncing} onRefresh={refresh} />
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+        {live && <LiveTodayCard live={live} />}
+
         <CoachBriefingCard briefing={briefing} />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
