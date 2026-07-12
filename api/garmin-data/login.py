@@ -22,6 +22,13 @@ import traceback
 # If anything in the import chain blows up (missing wheel, wrong Python,
 # sibling module not bundled), surface the traceback as JSON instead of
 # letting the platform swallow it into an opaque 500.
+# Vercel runs functions from the project root (/var/task), so the function's
+# own directory isn't on sys.path and the shared _garmin_lib sibling can't be
+# imported without pointing Python at it explicitly.
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 try:
     from _garmin_lib import INTERNAL_FN_SECRET, build_client, dump_mfa_state, dump_token
     IMPORT_ERROR: str | None = None

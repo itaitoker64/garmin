@@ -18,6 +18,14 @@ from http.server import BaseHTTPRequestHandler
 import json
 import traceback
 
+# Vercel runs functions from the project root (/var/task), so the function's
+# own directory isn't on sys.path and the shared _garmin_lib sibling can't be
+# imported without pointing Python at it explicitly.
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 try:
     from _garmin_lib import INTERNAL_FN_SECRET, resume_client, dump_token, get_snapshot
     IMPORT_ERROR: str | None = None
