@@ -687,6 +687,118 @@ def get_personal_records(client: Any) -> dict[str, Any]:
     return {"count": total, "by_sport": {k: v for k, v in grouped.items() if v}}
 
 
+def _downsample_series(
+    values: list[tuple[int, float]], max_points: int = 96
+) -> list[dict[str, Any]]:
+    """Thin an intraday [(epoch_ms, value), ...] series to at most max_points,
+    always keeping the most recent sample so "current" matches the series end."""
+    if not values:
+        return []
+    if len(values) > max_points:
+        step = len(values) / max_points
+        picked = [values[int(i * step)] for i in range(max_points)]
+        if picked[-1][0] != values[-1][0]:
+            picked.append(values[-1])
+        values = picked
+    return [{"t": ts, "v": v} for ts, v in values]
+
+
+def get_today_live(client: Any) -> dict[str, Any]:
+    """Lightweight intraday snapshot for the dashboard's live panel.
+
+    Much cheaper than get_snapshot (4 calls vs ~30) so the client can poll it
+    every few minutes without tripping Garmin's rate limits.
+    """
+    today = _today_iso()
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_stats = ex.submit(_safe, lambda: client.get_stats(today))
+        f_hr = ex.submit(_safe, lambda: client.get_heart_rates(today))
+        f_bb = ex.submit(_safe, lambda: client.get_body_battery(today))
+        f_stress = ex.submit(_safe, lambda: client.get_all_day_stress(today))
+        stats_raw = f_stats.result()
+        hr_raw = f_hr.result()
+        bb_raw = f_bb.result()
+        stress_raw = f_stress.result()
+
+    stats = stats_raw if isinstance(stats_raw, dict) else {}
+
+    hr_series: list[tuple[int, float]] = []
+    if isinstance(hr_raw, dict):
+        for point in hr_raw.get("heartRateValues") or []:
+            if isinstance(point, (list, tuple)) and len(point) == 2 and point[1] is not None:
+                hr_series.append((int(point[0]), float(point[1])))
+    hr_current = hr_series[-1] if hr_series else None
+
+    bb_series: list[tuple[int, float]] = []
+    if isinstance(bb_raw, list) and bb_raw:
+        day = bb_raw[-1] if isinstance(bb_raw[-1], dict) else {}
+        for point in day.get("bodyBatteryValuesArray") or []:
+            # Entries are [timestamp, status, level, version]; older payloads
+            # may be [timestamp, level]. Take the first numeric after ts.
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            level = next(
+                (p for p in point[1:] if isinstance(p, (int, float))),
+                None,
+            )
+            if level is not None:
+                bb_series.append((int(point[0]), float(level)))
+    bb_current = stats.get("bodyBatteryMostRecentValue")
+    if bb_current is None and bb_series:
+        bb_current = bb_series[-1][1]
+
+    def _none_if_neg(value: Any) -> Any:
+        # Garmin uses -1/-2 sentinels for "not measured".
+        return value if isinstance(value, (int, float)) and value >= 0 else None
+
+    stress_current = None
+    if isinstance(stress_raw, dict):
+        for point in reversed(stress_raw.get("stressValuesArray") or []):
+            if (
+                isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and isinstance(point[1], (int, float))
+                and point[1] >= 0  # negative codes mean "unmeasurable"
+            ):
+                stress_current = int(point[1])
+                break
+
+    return {
+        "as_of": datetime.now().astimezone().isoformat(),
+        "date": today,
+        "steps": stats.get("totalSteps"),
+        "step_goal": stats.get("dailyStepGoal"),
+        "floors_up": _round(stats.get("floorsAscended"), 0),
+        "calories_active": stats.get("activeKilocalories"),
+        "calories_total": stats.get("totalKilocalories"),
+        "intensity_minutes": (
+            (stats.get("moderateIntensityMinutes") or 0)
+            + 2 * (stats.get("vigorousIntensityMinutes") or 0)
+        ),
+        "heart_rate": {
+            "current_bpm": int(hr_current[1]) if hr_current else None,
+            "current_at": hr_current[0] if hr_current else None,
+            "resting_today": _none_if_neg(stats.get("restingHeartRate")),
+            "min_today": _none_if_neg(stats.get("minHeartRate")),
+            "max_today": _none_if_neg(stats.get("maxHeartRate")),
+            "series": _downsample_series(hr_series),
+        },
+        "body_battery": {
+            "current": int(bb_current) if isinstance(bb_current, (int, float)) else None,
+            "charged": stats.get("bodyBatteryChargedValue"),
+            "drained": stats.get("bodyBatteryDrainedValue"),
+            "series": _downsample_series(bb_series),
+        },
+        "stress": {
+            "current": stress_current,
+            "avg_today": _none_if_neg(stats.get("averageStressLevel")),
+            "max_today": _none_if_neg(stats.get("maxStressLevel")),
+        },
+        "sleep_seconds_last_night": stats.get("sleepingSeconds"),
+    }
+
+
 def get_snapshot(client: Any) -> dict[str, Any]:
     """Fetch everything the dashboard needs in one shot."""
     with ThreadPoolExecutor(max_workers=6) as ex:

@@ -85,3 +85,10 @@ export function garminSnapshot(token: string) {
     { token },
   );
 }
+
+export function garminLive(token: string) {
+  return callFn<{ token: string; data: import("./types").LiveToday }>(
+    "/api/garmin-data/live",
+    { token },
+  );
+}

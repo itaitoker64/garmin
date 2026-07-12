@@ -150,3 +150,39 @@ export interface GarminSnapshot {
   stress: Stress;
   personal_records: PersonalRecords;
 }
+
+export interface LivePoint {
+  t: number; // epoch ms
+  v: number;
+}
+
+export interface LiveToday {
+  as_of: string;
+  date: string;
+  steps: number | null;
+  step_goal: number | null;
+  floors_up: number | null;
+  calories_active: number | null;
+  calories_total: number | null;
+  intensity_minutes: number | null;
+  heart_rate: {
+    current_bpm: number | null;
+    current_at: number | null;
+    resting_today: number | null;
+    min_today: number | null;
+    max_today: number | null;
+    series: LivePoint[];
+  };
+  body_battery: {
+    current: number | null;
+    charged: number | null;
+    drained: number | null;
+    series: LivePoint[];
+  };
+  stress: {
+    current: number | null;
+    avg_today: number | null;
+    max_today: number | null;
+  };
+  sleep_seconds_last_night: number | null;
+}

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { garminSnapshot } from "@/lib/garminFn";
+import { garminLive } from "@/lib/garminFn";
 import { handleGarminData } from "@/lib/garminRoute";
 
 export async function GET(req: NextRequest) {
-  return handleGarminData(req, garminSnapshot);
+  return handleGarminData(req, garminLive);
 }
