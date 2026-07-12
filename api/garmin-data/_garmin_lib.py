@@ -27,7 +27,115 @@ INTERNAL_FN_SECRET = (
 def build_client(email: str, password: str) -> Any:
     from garminconnect import Garmin
 
-    return Garmin(email=email, password=password)
+    # return_on_mfa: when the account needs a 2FA code, login() returns
+    # ("needs_mfa", None) instead of prompting interactively (impossible in a
+    # serverless function). We then snapshot the MFA state (dump_mfa_state)
+    # and finish in a second invocation (resume_mfa).
+    return Garmin(email=email, password=password, return_on_mfa=True)
+
+
+# ---------------------------------------------------------------------------
+# Stateless MFA plumbing.
+#
+# garminconnect's resume_login() assumes the same process that started the
+# login is still alive: the pending-MFA state lives on the inner Client as a
+# requests/curl_cffi Session (cookies) plus a handful of _mfa_* attributes.
+# Serverless invocations don't share a process, so we serialize exactly that
+# state to JSON after login() returns "needs_mfa", ship it to the caller
+# (who encrypts it into a short-lived cookie), and rebuild the Client from it
+# in the follow-up request that carries the user's 6-digit code.
+# ---------------------------------------------------------------------------
+
+_MFA_STATE_ATTRS = (
+    "_mfa_flow",
+    "_mfa_method",
+    "_mfa_login_params",
+    "_mfa_post_headers",
+    "_mfa_service_url",
+)
+
+
+def dump_mfa_state(garmin: Any) -> str:
+    import json as _json
+
+    inner = garmin.client
+    sess = getattr(inner, "_mfa_session", None)
+    if sess is None:
+        raise RuntimeError("no pending MFA session on client")
+
+    cookies = [
+        {
+            "name": ck.name,
+            "value": ck.value,
+            "domain": ck.domain,
+            "path": ck.path,
+            "secure": bool(ck.secure),
+        }
+        for ck in sess.cookies.jar
+    ]
+
+    state: dict[str, Any] = {
+        "impersonate": getattr(sess, "impersonate", None),
+        "cookies": cookies,
+    }
+    for attr in _MFA_STATE_ATTRS:
+        value = getattr(inner, attr, None)
+        if value is not None:
+            state[attr] = value
+
+    # Widget-flow MFA re-reads the CSRF token out of the last response body.
+    # Store only a minimal snippet that satisfies the library's regex — the
+    # full HTML page would overflow the cookie budget.
+    widget_resp = getattr(inner, "_widget_last_resp", None)
+    if widget_resp is not None and hasattr(widget_resp, "text"):
+        import re as _re
+
+        match = _re.search(r'name="_csrf"\s+value="(.+?)"', widget_resp.text)
+        if match:
+            state["widget_html"] = f'name="_csrf" value="{match.group(1)}"'
+
+    return _json.dumps(state)
+
+
+def resume_mfa(state_json: str, code: str) -> Any:
+    """Rebuild the pending-MFA client from serialized state and complete login."""
+    import json as _json
+    from types import SimpleNamespace
+
+    from garminconnect import Garmin
+
+    state = _json.loads(state_json)
+
+    impersonate = state.get("impersonate")
+    if impersonate:
+        from curl_cffi import requests as cffi_requests
+
+        sess: Any = cffi_requests.Session(impersonate=impersonate)
+    else:
+        import requests
+
+        sess = requests.Session()
+
+    for ck in state.get("cookies", []):
+        sess.cookies.set(
+            ck["name"],
+            ck["value"],
+            domain=ck.get("domain") or "",
+            path=ck.get("path") or "/",
+            secure=bool(ck.get("secure")),
+        )
+
+    garmin = Garmin()
+    inner = garmin.client
+    inner._mfa_session = sess
+    for attr in _MFA_STATE_ATTRS:
+        if attr in state:
+            setattr(inner, attr, state[attr])
+    if state.get("widget_html"):
+        inner._widget_last_resp = SimpleNamespace(text=state["widget_html"])
+
+    inner._complete_mfa(code)
+    return garmin
 
 
 def resume_client(token: str) -> Any:
