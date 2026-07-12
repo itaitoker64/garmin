@@ -11,8 +11,14 @@ Gated by X-Internal-Secret so only our own Node routes can reach it.
 """
 from http.server import BaseHTTPRequestHandler
 import json
+import traceback
 
-from _garmin_lib import INTERNAL_FN_SECRET, dump_token, resume_mfa
+try:
+    from _garmin_lib import INTERNAL_FN_SECRET, dump_token, resume_mfa
+    IMPORT_ERROR: str | None = None
+except Exception:
+    IMPORT_ERROR = traceback.format_exc()
+    INTERNAL_FN_SECRET = None  # type: ignore[assignment]
 
 
 def _send(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -26,6 +32,19 @@ def _send(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
+        try:
+            self._handle()
+        except Exception:
+            _send(self, 500, {
+                "error": "function_crash",
+                "message": traceback.format_exc()[-1800:],
+            })
+
+    def _handle(self) -> None:
+        if IMPORT_ERROR:
+            _send(self, 500, {"error": "import_error", "message": IMPORT_ERROR[-1800:]})
+            return
+
         if self.headers.get("X-Internal-Secret") != INTERNAL_FN_SECRET:
             _send(self, 401, {"error": "unauthorized"})
             return
