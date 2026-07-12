@@ -9,9 +9,19 @@ build_client / resume_client / dump_token below).
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
+
+# Shared secret gating these endpoints so only our own Next.js server can
+# reach them. The fallback matches DEFAULT_INTERNAL_FN_SECRET in
+# lib/defaults.ts — keep them in sync. Setting INTERNAL_FN_SECRET in the
+# Vercel project overrides both sides.
+INTERNAL_FN_SECRET = (
+    os.environ.get("INTERNAL_FN_SECRET")
+    or "e71fa48902a456bb210a75d9ecc25d8eeb4207d3767b0ee3ed75e17aa7affc4c"
+)
 
 
 def build_client(email: str, password: str) -> Any:

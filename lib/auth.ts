@@ -2,6 +2,7 @@ import type { AuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import { ADMIN_EMAIL, ADMIN_PASSWORD_HASH, NEXTAUTH_SECRET } from "./defaults";
 
 // Single-owner app: only the email in OWNER_EMAIL may ever hold a session,
 // regardless of which provider it came in through.
@@ -26,10 +27,10 @@ export const authOptions: AuthOptions = {
       async authorize(credentials) {
         const email = credentials?.email?.toLowerCase().trim();
         const password = credentials?.password ?? "";
-        const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
-        const adminHash = process.env.ADMIN_PASSWORD_HASH;
+        const adminEmail = ADMIN_EMAIL.toLowerCase().trim();
+        const adminHash = ADMIN_PASSWORD_HASH;
 
-        if (!email || !adminEmail || !adminHash) return null;
+        if (!email) return null;
         if (email !== adminEmail) return null;
 
         const valid = await bcrypt.compare(password, adminHash);
@@ -41,7 +42,7 @@ export const authOptions: AuthOptions = {
   ],
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: NEXTAUTH_SECRET,
   callbacks: {
     async signIn({ user }) {
       if (!OWNER_EMAIL) return true;

@@ -2,18 +2,19 @@
 // side. They live in the same deployment, so we hit them over HTTP using the
 // deployment's own URL rather than importing Python code into the Node runtime.
 
+import { INTERNAL_FN_SECRET } from "./defaults";
+
 function baseUrl(): string {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return process.env.APP_URL || "http://localhost:3000";
 }
 
 async function callFn<T>(path: string, body: unknown): Promise<T> {
-  const secret = process.env.INTERNAL_FN_SECRET;
   const res = await fetch(`${baseUrl()}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(secret ? { "X-Internal-Secret": secret } : {}),
+      "X-Internal-Secret": INTERNAL_FN_SECRET,
     },
     body: JSON.stringify(body),
     cache: "no-store",
