@@ -13,7 +13,7 @@ Gated by X-Internal-Secret so only our own Node routes can reach it.
 from http.server import BaseHTTPRequestHandler
 import json
 
-from _garmin_lib import INTERNAL_FN_SECRET, build_client, dump_token
+from _garmin_lib import INTERNAL_FN_SECRET, build_client, dump_mfa_state, dump_token
 
 
 def _send(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -49,14 +49,13 @@ class handler(BaseHTTPRequestHandler):
             result = client.login()
             needs_mfa = isinstance(result, tuple) and result[0]
             if needs_mfa:
-                _send(self, 428, {
-                    "error": "mfa_required",
-                    "message": (
-                        "Your Garmin account has MFA/2FA enabled. This app "
-                        "doesn't support interactive MFA yet — temporarily "
-                        "disable it in Garmin Connect account security "
-                        "settings, connect once, then you can re-enable it."
-                    ),
+                # Not a failure: hand the serialized pending-MFA state back to
+                # the Node side, which stores it (encrypted, short-lived) and
+                # asks the user for their 6-digit code. mfa.py finishes the job.
+                _send(self, 200, {
+                    "mfa_required": True,
+                    "mfa_state": dump_mfa_state(client),
+                    "mfa_method": getattr(client.client, "_mfa_method", None) or "email",
                 })
                 return
             token = dump_token(client)

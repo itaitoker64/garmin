@@ -5,8 +5,23 @@
 import { INTERNAL_FN_SECRET } from "./defaults";
 
 function baseUrl(): string {
+  // Prefer the stable production alias over the per-deployment generated URL:
+  // with Vercel Deployment Protection ("Standard Protection"), VERCEL_URL sits
+  // behind Vercel Authentication even in production, which walls off our own
+  // server-to-function calls and surfaces as a "protected deployment" error.
+  // The production domain stays public, so route internal calls through it.
+  if (process.env.VERCEL_ENV === "production" && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return process.env.APP_URL || "http://localhost:3000";
+}
+
+// Set automatically by Vercel when "Protection Bypass for Automation" is
+// enabled — lets internal calls through protection on preview deployments too.
+function bypassHeaders(): Record<string, string> {
+  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  return secret ? { "x-vercel-protection-bypass": secret } : {};
 }
 
 // Our own Python handlers always send {error, message} as flat strings, but a
@@ -31,6 +46,7 @@ async function callFn<T>(path: string, body: unknown): Promise<T> {
     headers: {
       "Content-Type": "application/json",
       "X-Internal-Secret": INTERNAL_FN_SECRET,
+      ...bypassHeaders(),
     },
     body: JSON.stringify(body),
     cache: "no-store",
@@ -51,7 +67,16 @@ async function callFn<T>(path: string, body: unknown): Promise<T> {
 }
 
 export function garminLogin(email: string, password: string) {
-  return callFn<{ token: string }>("/api/garmin-data/login", { email, password });
+  return callFn<{
+    token: string;
+    mfa_required?: boolean;
+    mfa_state?: string;
+    mfa_method?: string;
+  }>("/api/garmin-data/login", { email, password });
+}
+
+export function garminMfa(state: string, code: string) {
+  return callFn<{ token: string }>("/api/garmin-data/mfa", { state, code });
 }
 
 export function garminSnapshot(token: string) {

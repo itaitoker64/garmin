@@ -47,7 +47,10 @@ export function cookieNamesForChunks(count: number): string[] {
   return Array.from({ length: count }, (_, i) => `${COOKIE_BASE}.${i}`);
 }
 
-export function chunkForCookies(encrypted: string): { name: string; value: string }[] {
+export function chunkForCookies(
+  encrypted: string,
+  base: string = COOKIE_BASE,
+): { name: string; value: string }[] {
   const chunks: string[] = [];
   for (let i = 0; i < encrypted.length; i += CHUNK_SIZE) {
     chunks.push(encrypted.slice(i, i + CHUNK_SIZE));
@@ -55,7 +58,7 @@ export function chunkForCookies(encrypted: string): { name: string; value: strin
   if (chunks.length > MAX_CHUNKS) {
     throw new Error("Session token too large to store in cookies");
   }
-  return chunks.map((value, i) => ({ name: `${COOKIE_BASE}.${i}`, value }));
+  return chunks.map((value, i) => ({ name: `${base}.${i}`, value }));
 }
 
 export function joinCookieChunks(values: (string | undefined)[]): string | null {
@@ -66,3 +69,8 @@ export function joinCookieChunks(values: (string | undefined)[]): string | null 
 
 export const SESSION_COOKIE_PREFIX = COOKIE_BASE;
 export const SESSION_COOKIE_MAX_CHUNKS = MAX_CHUNKS;
+
+// Pending-MFA state (between "password accepted" and "code entered") rides in
+// its own short-lived cookie set, cleared as soon as the login completes.
+export const MFA_COOKIE_PREFIX = "gcoach_mfa";
+export const MFA_COOKIE_MAX_AGE_S = 10 * 60;

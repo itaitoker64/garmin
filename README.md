@@ -84,10 +84,21 @@ cookie.
 
 ### MFA / 2FA note
 
-The Garmin connect flow doesn't support interactive MFA yet. If your Garmin
-account has 2FA enabled, temporarily disable it, connect once, then you can
-turn it back on (the session token doesn't depend on it after the first
-login).
+Accounts with 2FA enabled are supported: after submitting your email and
+password, the form asks for the security code Garmin sends you (email or
+SMS). The pending login state is held in an encrypted, httpOnly cookie for
+up to 10 minutes while you enter the code; after that you'd need to log in
+again. Once connected, the stored session token refreshes itself and no
+further codes are needed.
+
+### Deployment Protection note
+
+Internal server-to-function calls are routed through the project's public
+production domain (`VERCEL_PROJECT_PRODUCTION_URL`), so Vercel's Standard
+Deployment Protection doesn't wall them off in production. For protected
+*preview* deployments, enable "Protection Bypass for Automation" in the
+Vercel dashboard — the resulting `VERCEL_AUTOMATION_BYPASS_SECRET` is picked
+up automatically.
 
 ## Local development
 
